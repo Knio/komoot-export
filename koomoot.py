@@ -18,22 +18,38 @@ log = logging.getLogger()
 
 
 class KomootExport(object):
-    def __init__(self, username):
-        self.username = username
+    def __init__(self):
+        self.user = None
         self.session = requests.Session()
+        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:58.0) Gecko/20100101 Firefox/58.0'})
 
-    def login(self):
-        password = getpass.getpass('Komoot password for {}: '.format(self.username))
+    def login(self, username):
+        password = getpass.getpass('Komoot password for {}: '.format(username))
+
         r = self.session.get('https://www.komoot.com/')
-        r = self.session.post('https://www.komoot.com/webapi/v006/auth/cookie',
-                data={'username': self.username, 'password': password})
+        r.raise_for_status()
+        time.sleep(1)
+        self.session.headers.update({'Accept': 'application/json'})
 
-    def get_tours_html(self):
-        r = session.get('https://www.komoot.com/user/542825766821/tours')
+        r = self.session.post('https://www.komoot.com/webapi/v006/auth/cookie',
+                data={'username': username, 'password': password})
+        r.raise_for_status()
+        time.sleep(1)
+
+        r = self.session.get('https://www.komoot.com/heartbeat')
+        print(r.text)
+        r.raise_for_status()
+        self.user = r.json()['user']
+        time.sleep(1)
+
+
+    def get_tours_html(self, user_id):
+        r = self.session.get('https://www.komoot.com/user/{}/tours'.format(user_id))
+        r.raise_for_status()
         return r.text
 
-    def get_tours(self):
-        tours_html = open('tours.html', encoding='utf-8').read()
+    def get_tours(self, user_id):
+        tours_html = self.get_tours_html(user_id)
         tours = self.parse_tours(tours_html)['tours']
         return tours
 
@@ -50,6 +66,7 @@ class KomootExport(object):
         time.sleep(2)
         r = self.session.get(
             'https://www.komoot.com/api/v006/tours/{}/export'.format(tour_id))
+        r.raise_for_status()
         content_dispostinion = r.headers['Content-disposition']
         params = content_dispostinion.split(';')
         _value = params.pop(0)
@@ -59,8 +76,10 @@ class KomootExport(object):
         filename = params['filename']
         return filename, r.text
 
-    def download_all_tours(self):
-        tours = self.get_tours()
+    def download_all_tours(self, user_id=None):
+        if not user_id:
+            user_id = self.user['username']
+        tours = self.get_tours(user_id)
         existing_files = os.listdir('.')
 
         def already_downloaded(tour_id):
@@ -81,12 +100,15 @@ class KomootExport(object):
 
 def export():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--user', required=True)
+    parser.add_argument('--user-name', required=False)
+    parser.add_argument('--user-id', required=False)
     args = parser.parse_args()
 
-    komoot_export = KomootExport(args.user)
-    komoot_export.login()
-    komoot_export.download_all_tours()
+    komoot_export = KomootExport()
+    # turns out komoot doesn't actually auth check the gpx endpoint so this is optional ¯\_(ツ)_/¯
+    if args.user_name:
+        komoot_export.login(args.user_name)
+    komoot_export.download_all_tours(args.user_id)
 
 
 if __name__ == '__main__':

@@ -101,7 +101,7 @@ class KomootExport(object):
 def export():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--user-name', required=False)
-    parser.add_argument('--user-id', required=False)
+    parser.add_argument('--user-id', required=True)
     args = parser.parse_args()
 
     komoot_export = KomootExport()

@@ -10,10 +10,10 @@ import json
 import logging
 import os
 import time
+import urllib
 
 import requests
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
 
@@ -51,6 +51,7 @@ class KomootExport(object):
     def get_tours(self, user_id):
         tours_html = self.get_tours_html(user_id)
         tours = self.parse_tours(tours_html)['tours']
+        log.debug('Loaded %d tours for user_id %s', len(tours), user_id)
         return tours
 
     @staticmethod
@@ -64,8 +65,9 @@ class KomootExport(object):
 
     def get_tour_gpx(self, tour_id):
         time.sleep(2)
+        log.debug('Getting tour_id %d', tour_id)
         r = self.session.get(
-            'https://www.komoot.com/api/v006/tours/{}/export'.format(tour_id))
+            'https://www.komoot.com/api/v007/tours/{}.gpx'.format(tour_id))
         r.raise_for_status()
         content_dispostinion = r.headers['Content-disposition']
         params = content_dispostinion.split(';')
@@ -73,7 +75,9 @@ class KomootExport(object):
         params = {
             k.strip():v.strip()[1:-1].encode('utf-8').decode('unicode_escape')
             for k,v in (p.split('=') for p in params)}
-        filename = params['filename']
+        filename = urllib.parse.unquote(params['filename'])
+        filename = filename.translate({ord(i):'_' for i in r' ,<.>/?;:\'"[{]}\|=+'})
+        log.debug('Got tour %s with filename %s', tour_id, filename)
         return filename, r.text
 
     def download_all_tours(self, user_id=None):
@@ -99,9 +103,14 @@ class KomootExport(object):
 
 
 def export():
+    logging.basicConfig(level=logging.DEBUG)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--user-name', required=False)
-    parser.add_argument('--user-id', required=True)
+    parser.add_argument('--user-name',
+        help='User name (email) to log in as. Not required to export public tours.',
+        required=False)
+    parser.add_argument('--user-id',
+        help='User ID of tours to export.',
+        required=True)
     args = parser.parse_args()
 
     komoot_export = KomootExport()

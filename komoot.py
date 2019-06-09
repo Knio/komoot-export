@@ -21,7 +21,7 @@ class KomootExport(object):
     def __init__(self):
         self.user = None
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:58.0) Gecko/20100101 Firefox/58.0'})
+        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.157 Safari/537.36'})
 
     def login(self, username):
         password = getpass.getpass('Komoot password for {}: '.format(username))
@@ -29,63 +29,35 @@ class KomootExport(object):
         r = self.session.get('https://www.komoot.com/')
         r.raise_for_status()
         time.sleep(1)
-        self.session.headers.update({'Accept': 'application/json'})
 
         r = self.session.post('https://www.komoot.com/webapi/v006/auth/cookie',
-                data={'username': username, 'password': password})
+                data={'username': username, 'password': password},
+                headers={'Accept': 'application/json'})
         r.raise_for_status()
-        time.sleep(1)
-
-        r = self.session.get('https://www.komoot.com/heartbeat')
         print(r.text)
-        r.raise_for_status()
-        self.user = r.json()['user']
         time.sleep(1)
 
-
-    def get_tours_html(self, user_id):
-        r = self.session.get('https://www.komoot.com/user/{}/tours'.format(user_id))
+        r = self.session.get('https://www.komoot.com/heartbeat',
+                headers={'Accept': 'application/json'})
         r.raise_for_status()
-        return r.text
+        print(r.text)
+        time.sleep(1)
 
     def get_tours(self, user_id):
-        tours_html = self.get_tours_html(user_id)
-        data = self.parse_tours(tours_html)
-        tours = data['user']['tours']['items']
+        tours = []
+        page = 0
+        while True:
+            r = self.session.get(
+                'https://www.komoot.com/api/v007/users/{}/activities/?page={}&limit=50'.format(user_id, page))
+            r.raise_for_status()
+            data = r.json()
+            page_tours = data['_embedded']['items']
+            tours += page_tours
+            page += 1
+            if page >= data['page']['totalPages']:
+                break
         log.info('Loaded %d tours for user_id %s', len(tours), user_id)
         return tours
-
-    def get_tours_loggedin(self, user_id):
-        r = self.session.get(
-            'https://api.komoot.de/v007/users/{}/tours/'.format(user_id))
-        r.raise_for_status()
-        data = r.json()
-        tours = data['_embedded']['tours']['items']
-        log.info('Loaded %d tours for user_id %s', len(tours), user_id)
-        raise NotImplimentedError
-
-    @staticmethod
-    def parse_tours(html):
-        # TODO this only loads the first page of tours (24)
-        start_index = html.index('kmtBoot.setProps(')
-        end_index = html.index(');\n    </script>', start_index);
-        data = html[start_index + 18 : end_index - 1]
-        data = data.encode('utf-8').decode('unicode_escape')
-        data = json.loads(data)
-        def fix(j):
-            if isinstance(j, dict):
-                e = j.pop('_embedded', None)
-                d = {k:fix(v) for k, v in j.items()}
-                if e is not None:
-                    d.update(fix(e))
-                return d
-            elif isinstance(j, list):
-                return [fix(v) for v in j]
-            else:
-                return j
-        data = fix(data)
-        log.debug(json.dumps(data, sort_keys=True, indent=2))
-        return data
 
     def get_tour_gpx(self, tour_id):
         time.sleep(2)
@@ -118,7 +90,7 @@ class KomootExport(object):
                     return f
 
         for tour in tours:
-            tour_id = tour['id']
+            tour_id = tour['_embedded']['tour']['id']
             exists = already_downloaded(tour_id)
             if exists:
                 log.info('Tour {} is already synced as {}'.format(tour_id, exists))

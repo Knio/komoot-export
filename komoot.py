@@ -21,7 +21,7 @@ class KomootExport(object):
     def __init__(self):
         self.user = None
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.157 Safari/537.36'})
+        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:75.0) Gecko/20100101 Firefox/75.0'})
 
     def login(self, username):
         password = getpass.getpass('Komoot password for {}: '.format(username))
@@ -30,18 +30,43 @@ class KomootExport(object):
         r.raise_for_status()
         time.sleep(1)
 
-        r = self.session.post('https://www.komoot.com/webapi/v006/auth/cookie',
-                data={'username': username, 'password': password},
+        r = self.session.post('https://account.komoot.com/v1/signin',
+                data=json.dumps({'email': username, 'password': '','reason': None}),
                 headers={'Accept': 'application/json'})
+
         r.raise_for_status()
-        print(r.text)
+        e = r.json()['error']
+        if e: raise Exception(e)
         time.sleep(1)
 
-        r = self.session.get('https://www.komoot.com/heartbeat',
+        r = self.session.post('https://account.komoot.com/v1/signin',
+                data=json.dumps({'email': username, 'password': password,'reason': None}),
                 headers={'Accept': 'application/json'})
+
         r.raise_for_status()
-        print(r.text)
+        e = r.json()['error']
+        if e: raise Exception(e)
         time.sleep(1)
+
+        r = self.session.get('https://account.komoot.com/api/account/v1/session?hl=en')
+        r.raise_for_status()
+        time.sleep(1)
+
+        ### old login below
+        # r = self.session.post('https://www.komoot.com/webapi/v006/auth/cookie',
+        #         data={'username': username, 'password': password},
+        #         headers={'Accept': 'application/json'})
+
+
+        # r.raise_for_status()
+        # print(r.text)
+        # time.sleep(1)
+
+        # r = self.session.get('https://www.komoot.com/heartbeat',
+        #         headers={'Accept': 'application/json'})
+        # r.raise_for_status()
+        # print(r.text)
+        # time.sleep(1)
 
     def get_tours(self, user_id):
         tours = []
@@ -94,10 +119,13 @@ class KomootExport(object):
             exists = already_downloaded(tour_id)
             if exists:
                 log.info('Tour {} is already synced as {}'.format(tour_id, exists))
-            else:
+                continue
+            try:
                 filename, gpx = self.get_tour_gpx(tour_id)
                 open(filename, 'w', encoding='utf-8').write(gpx)
                 log.info('Tour {} saved as {}'.format(tour_id, filename))
+            except requests.exceptions.HTTPError as e:
+                log.error('Failed to download tour %s: %r', tour_id, e)
 
 
 def export():
